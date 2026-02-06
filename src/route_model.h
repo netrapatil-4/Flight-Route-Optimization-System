@@ -1,47 +1,65 @@
 #ifndef ROUTE_MODEL_H
 #define ROUTE_MODEL_H
 
+#include <vector>
 #include <cmath>
-#include <iostream>
 #include <limits>
-#include <unordered_map>
-
 #include "model.h"
 
-class RouteModel : public Model {
- public:
-  class Node : public Model::Node {
-   public:
-    Node *parent = nullptr;
-    float h_value = std::numeric_limits<float>::max();
-    float g_value = 0.0;
-    bool visited = false;
-    std::vector<Node *> neighbors;
+class RouteModel {
 
-    void FindNeighbors();
-    float distance(Node other) const {
-      return std::sqrt(std::pow((x - other.x), 2) + std::pow((y - other.y), 2));
-    }
+public:
 
-    Node() {}
-    Node(int idx, RouteModel *search_model, Model::Node node)
-        : Model::Node(node), parent_model(search_model), index(idx) {}
+    struct Node {
+        double lat;
+        double lon;
 
-   private:
-    int index;
-    Node *FindNeighbor(std::vector<int> node_indices);
-    RouteModel *parent_model = nullptr;
-  };
+        Node* parent = nullptr;
+        double g_value = 0.0;
+        double h_value = std::numeric_limits<double>::max();
+        bool visited = false;
 
-  RouteModel(const std::vector<std::byte> &xml);
-  Node &FindClosestNode(float x, float y);
-  auto &SNodes() { return m_Nodes; }
-  std::vector<Node> path;
+        std::vector<Node*> neighbors;
 
- private:
-  void CreateNodeToRoadHashmap();
-  std::unordered_map<int, std::vector<const Model::Road *>> node_to_road;
-  std::vector<Node> m_Nodes;
+        Node(double latitude, double longitude)
+            : lat(latitude), lon(longitude) {}
+
+        // Haversine distance (great-circle)
+        double distance(const Node& other) const {
+            const double R = 6371.0; // Earth radius (km)
+
+            double lat1 = lat * M_PI / 180.0;
+            double lat2 = other.lat * M_PI / 180.0;
+            double dLat = (other.lat - lat) * M_PI / 180.0;
+            double dLon = (other.lon - lon) * M_PI / 180.0;
+
+            double a = sin(dLat/2) * sin(dLat/2) +
+                       cos(lat1) * cos(lat2) *
+                       sin(dLon/2) * sin(dLon/2);
+
+            double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+            return R * c;
+        }
+    };
+
+    RouteModel(Model& model, double step);
+
+    Node* FindClosestNode(double lat, double lon);
+
+    std::vector<Node> nodes;
+    std::vector<Node> path;
+
+private:
+
+    void BuildGrid(double minLat, double maxLat,
+                   double minLon, double maxLon,
+                   double step);
+
+    void ConnectGridNeighbors(int rows, int cols);
+
+    void ConnectAirports(const Model& model);
+
+    Model& m_Model;
 };
 
 #endif

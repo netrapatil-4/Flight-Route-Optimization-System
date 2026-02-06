@@ -1,77 +1,101 @@
 #include "route_model.h"
-#include <iostream>
 
-RouteModel::RouteModel(const std::vector<std::byte> &xml) : Model(xml) {
-    // Create RouteModel nodes.
-    int counter = 0;
-    for (Model::Node node : this->Nodes()) {
-        m_Nodes.emplace_back(Node(counter, this, node));
-        counter++;
-    }
-    CreateNodeToRoadHashmap();
+RouteModel::RouteModel(Model& model, double step)
+    : m_Model(model)
+{
+    double minLat = model.GetMinLat();
+    double maxLat = model.GetMaxLat();
+    double minLon = model.GetMinLon();
+    double maxLon = model.GetMaxLon();
+
+    BuildGrid(minLat, maxLat, minLon, maxLon, step);
+    ConnectAirports(model);
 }
 
+void RouteModel::BuildGrid(double minLat, double maxLat,
+                           double minLon, double maxLon,
+                           double step)
+{
+    int rows = static_cast<int>((maxLat - minLat) / step) + 1;
+    int cols = static_cast<int>((maxLon - minLon) / step) + 1;
 
-void RouteModel::CreateNodeToRoadHashmap() {
-    for (const Model::Road &road : Roads()) {
-        if (road.type != Model::Road::Type::Footway) {
-            for (int node_idx : Ways()[road.way].nodes) {
-                if (node_to_road.find(node_idx) == node_to_road.end()) {
-                    node_to_road[node_idx] = std::vector<const Model::Road *> ();
-                }
-                node_to_road[node_idx].push_back(&road);
-            }
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            double lat = minLat + r * step;
+            double lon = minLon + c * step;
+            nodes.emplace_back(lat, lon);
         }
     }
+
+    ConnectGridNeighbors(rows, cols);
 }
 
+void RouteModel::ConnectGridNeighbors(int rows, int cols)
+{
+    auto index = [cols](int r, int c) {
+        return r * cols + c;
+    };
 
-RouteModel::Node *RouteModel::Node::FindNeighbor(std::vector<int> node_indices) {
-    Node *closest_node = nullptr;
-    Node node;
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
 
-    for (int node_index : node_indices) {
-        node = parent_model->SNodes()[node_index];
-        if (this->distance(node) != 0 && !node.visited) {
-            if (closest_node == nullptr || this->distance(node) < this->distance(*closest_node)) {
-                closest_node = &parent_model->SNodes()[node_index];
-            }
-        }
-    }
-    return closest_node;
-}
+            int current = index(r, c);
 
+            for (int dr = -1; dr <= 1; ++dr) {
+                for (int dc = -1; dc <= 1; ++dc) {
 
-void RouteModel::Node::FindNeighbors() {
-    for (auto & road : parent_model->node_to_road[this->index]) {
-        RouteModel::Node *new_neighbor = this->FindNeighbor(parent_model->Ways()[road->way].nodes);
-        if (new_neighbor) {
-            this->neighbors.emplace_back(new_neighbor);
-        }
-    }
-}
+                    if (dr == 0 && dc == 0) continue;
 
+                    int nr = r + dr;
+                    int nc = c + dc;
 
-RouteModel::Node &RouteModel::FindClosestNode(float x, float y) {
-    Node input;
-    input.x = x;
-    input.y = y;
+                    if (nr >= 0 && nr < rows &&
+                        nc >= 0 && nc < cols) {
 
-    float min_dist = std::numeric_limits<float>::max();
-    float dist;
-    int closest_idx;
-
-    for (const Model::Road &road : Roads()) {
-        if (road.type != Model::Road::Type::Footway) {
-            for (int node_idx : Ways()[road.way].nodes) {
-                dist = input.distance(SNodes()[node_idx]);
-                if (dist < min_dist) {
-                    closest_idx = node_idx;
-                    min_dist = dist;
+                        int neighbor = index(nr, nc);
+                        nodes[current].neighbors.push_back(&nodes[neighbor]);
+                    }
                 }
             }
         }
     }
+}
 
-    return SNodes()[closest_idx];
+void RouteModel::ConnectAirports(const Model& model)
+{
+    const auto& airportIndices = model.GetAirportIndices();
+    const auto& osmNodes = model.GetNodes();
+
+    for (int idx : airportIndices) {
+
+        double lat = osmNodes[idx].lat;
+        double lon = osmNodes[idx].lon;
+
+        nodes.emplace_back(lat, lon);
+        Node* airportNode = &nodes.back();
+
+        // connect airport to nearest grid node
+        Node* closest = FindClosestNode(lat, lon);
+
+        airportNode->neighbors.push_back(closest);
+        closest->neighbors.push_back(airportNode);
+    }
+}
+
+RouteModel::Node* RouteModel::FindClosestNode(double lat, double lon)
+{
+    Node temp(lat, lon);
+
+    double minDist = std::numeric_limits<double>::max();
+    Node* closest = nullptr;
+
+    for (auto& node : nodes) {
+        double dist = temp.distance(node);
+        if (dist < minDist) {
+            minDist = dist;
+            closest = &node;
+        }
+    }
+
+    return closest;
 }

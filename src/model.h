@@ -71,9 +71,9 @@ private:
     std::vector<Water> m_Waters;
     std::vector<Landuse> m_Landuses;
     
-    double m_MinLat = 0.;
-    double m_MaxLat = 0.;
-    double m_MinLon = 0.;
-    double m_MaxLon = 0.;
-    double m_MetricScale = 1.f;
+    double GetMinLat() const { return m_MinLat; }
+    double GetMaxLat() const { return m_MaxLat; }
+    double GetMinLon() const { return m_MinLon; }
+    double GetMaxLon() const { return m_MaxLon; }
+
 };
